@@ -6,8 +6,6 @@ import psycopg2
 VALID_USERNAME = "admin"
 VALID_PASSWORD = "1234"
 
-
-
 def get_connection():
     return psycopg2.connect(
         host="aws-0-eu-north-1.pooler.supabase.com",
@@ -21,22 +19,21 @@ def register_student(name, phone, parent, stage, group):
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Get StageID
-    cursor.execute("SELECT StageID FROM Stages WHERE StageName = %s", (stage,))
+    # جلب StageID من stages
+    cursor.execute("SELECT stageid FROM stages WHERE stagename = %s", (stage,))
     stage_id = cursor.fetchone()[0]
 
-    # Get GroupID
+    # جلب GroupID من groups باستخدام groupname و stage_id
     cursor.execute("""
-        SELECT g.GroupID 
-        FROM Groups g 
-        JOIN Stages s ON g.Stage_id = s.StageID 
-        WHERE g.GroupName = %s AND s.StageName = %s
-    """, (group, stage))
+        SELECT groupid 
+        FROM groups 
+        WHERE groupname = %s AND stage_id = %s
+    """, (group, stage_id))
     group_id = cursor.fetchone()[0]
 
-    # تسجيل الطالب مباشرة
+    # تسجيل الطالب في جدول students
     cursor.execute("""
-        INSERT INTO Students (FullName, PhoneNumber, ParentPhone, StageID, GroupID)
+        INSERT INTO students (fullname, phonenumber, parentphone, stageid, groupid)
         VALUES (%s, %s, %s, %s, %s)
     """, (name, phone, parent, stage_id, group_id))
 
@@ -46,12 +43,12 @@ def register_student(name, phone, parent, stage, group):
 def load_students():
     conn = get_connection()
     df = pd.read_sql_query("""
-        SELECT s.StudentID, s.FullName AS الاسم, s.PhoneNumber AS 'رقم الطالب',
-               s.ParentPhone AS 'رقم ولي الأمر', st.StageName AS المرحلة,
-               g.GroupName AS المجموعة, s.AccessCode AS 'كود الدخول'
-        FROM Students s
-        JOIN Stages st ON s.StageID = st.StageID
-        JOIN Groups g ON s.GroupID = g.GroupID
+        SELECT s.studentid, s.fullname AS الاسم, s.phonenumber AS "رقم الطالب",
+               s.parentphone AS "رقم ولي الأمر", st.stagename AS المرحلة,
+               g.groupname AS المجموعة, s.accesscode AS "كود الدخول"
+        FROM students s
+        JOIN stages st ON s.stageid = st.stageid
+        JOIN groups g ON s.groupid = g.groupid
     """, conn)
     conn.close()
     return df
@@ -60,10 +57,9 @@ def get_groups_by_stage(stage_name):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT g.GroupName 
-        FROM Groups g
-        JOIN Stages s ON g.Stage_id = s.StageID
-        WHERE s.StageName = %s
+        SELECT groupname 
+        FROM groups 
+        WHERE stage_id = (SELECT stageid FROM stages WHERE stagename = %s)
     """, (stage_name,))
     groups = [row[0] for row in cursor.fetchall()]
     conn.close()
@@ -81,7 +77,7 @@ if "view_logged_in" not in st.session_state:
 # Tabs
 tab1, tab2 = st.tabs(["➕ تسجيل طالب جديد", "📋 عرض الطلاب"])
 
-# ✅ تبويب تسجيل طالب
+# تبويب تسجيل طالب
 with tab1:
     st.subheader("📝 سجل طالب جديد")
 
@@ -108,7 +104,6 @@ with tab1:
              st.error("❌ الاسم يجب أن يحتوي على حروف عربية فقط.")
         elif len(name.strip().split()) < 3:
              st.error("❌ الاسم يجب أن يكون ثلاثيًا على الأقل (مثال: محمد أحمد علي).")
-
         elif not phone.isdigit() or len(phone) != 11:
             st.error("❌ رقم التليفون يجب أن يحتوي على 11 رقم.")
         elif not parent.isdigit() or len(parent) != 11:
@@ -122,7 +117,7 @@ with tab1:
             except Exception as e:
                 st.error(f"❌ حدث خطأ أثناء التسجيل: {e}")
 
-# ✅ تبويب عرض الطلاب (بداخله تسجيل دخول داخلي)
+# تبويب عرض الطلاب (مع تسجيل دخول داخلي)
 with tab2:
     if not st.session_state.view_logged_in:
         st.subheader("🔐 تسجيل الدخول لعرض الطلاب")
